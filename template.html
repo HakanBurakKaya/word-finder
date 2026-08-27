@@ -1,0 +1,595 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Wordle Solver</title>
+<style>
+/* ---------- theme ---------- */
+:root{
+  --bg:#121213; --panel:#1a1a1b; --panel2:#232324; --line:#3a3a3c;
+  --txt:#d7dadc; --dim:#8b8d8f;
+  --gray:#3a3a3c; --yellow:#b59f3b; --green:#538d4e;
+  --kbd:#818384;
+  --pad:10px;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%}
+body{
+  background:var(--bg); color:var(--txt);
+  font:16px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  display:flex; flex-direction:column; min-height:100dvh;
+}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer;border:none;background:none}
+
+/* ---------- shell ---------- */
+header{
+  padding:10px var(--pad) 8px; border-bottom:1px solid var(--line);
+  position:sticky; top:0; background:var(--bg); z-index:5;
+}
+h1{margin:0 0 8px;font-size:17px;letter-spacing:.14em;text-transform:uppercase;text-align:center;font-weight:700}
+h1 b{color:var(--green)}
+.lens{display:flex;gap:6px;justify-content:center}
+.lens button{
+  border:1px solid var(--line);border-radius:8px;padding:5px 11px;font-size:14px;
+  color:var(--dim);background:var(--panel)
+}
+.lens button[aria-pressed=true]{background:var(--green);border-color:var(--green);color:#fff;font-weight:600}
+
+main{flex:1;padding:var(--pad);padding-bottom:8px;display:flex;flex-direction:column;gap:10px;max-width:1100px;width:100%;margin:0 auto}
+
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px}
+.panel-h{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;margin-bottom:8px;font-size:13px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--dim)}
+.hint{font-weight:400;text-transform:none;letter-spacing:0;font-size:12px;color:var(--dim)}
+
+/* ---------- board ---------- */
+.brow{display:flex;align-items:center;gap:6px;margin-bottom:6px}
+.tiles{display:grid;grid-template-columns:repeat(var(--n),1fr);gap:5px;flex:1;min-width:0}
+.tile{
+  aspect-ratio:1;display:flex;align-items:center;justify-content:center;
+  border:2px solid var(--line);border-radius:6px;background:transparent;
+  font-weight:700;font-size:clamp(13px,4.6vw,26px);text-transform:uppercase;
+  transition:background .12s,border-color .12s; max-height:64px;
+  min-width:0; overflow:hidden;   /* grid items default to min-width:auto and
+                                     would refuse to shrink -> 8 tiles overflow
+                                     a narrow phone. This lets 1fr do its job. */
+}
+.tile.s0{background:var(--gray);border-color:var(--gray)}
+.tile.s1{background:var(--yellow);border-color:var(--yellow);color:#fff}
+.tile.s2{background:var(--green);border-color:var(--green);color:#fff}
+.tile.empty{background:transparent;border-color:var(--line)}
+.brow.active .tile.empty{border-color:#565758}
+.brow.active .caret{border-color:var(--green)!important}
+.xrow{width:30px;height:30px;border-radius:8px;color:var(--dim);font-size:18px;flex:none}
+.xrow:hover{color:#ff7b72}
+.btns{display:flex;gap:8px;margin-top:8px}
+.btns button{flex:1;border:1px solid var(--line);border-radius:9px;padding:9px;font-size:14px;background:var(--panel2)}
+.btns .ghost{color:var(--dim);background:transparent}
+
+/* ---------- advanced ---------- */
+details.panel summary{cursor:pointer;font-size:13px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--dim);list-style:none}
+details.panel summary::-webkit-details-marker{display:none}
+details.panel summary::before{content:"▸ ";display:inline-block;transition:transform .15s}
+details.panel[open] summary::before{content:"▾ "}
+.adv{display:grid;gap:8px;margin-top:10px}
+@media(min-width:560px){.adv{grid-template-columns:1fr 1fr}}
+label.f{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--dim)}
+label.f input{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:15px;width:100%}
+label.f input:focus{outline:none;border-color:var(--green)}
+.posgrid{grid-column:1/-1;display:grid;gap:6px;grid-template-columns:repeat(auto-fill,minmax(120px,1fr))}
+.pos{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:6px}
+.pos b{font-size:11px;color:var(--dim);display:block;margin-bottom:4px}
+.pos input{width:100%;background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:4px 6px;font-size:14px;margin-bottom:4px;text-align:center}
+.pos input.is{border-color:var(--green)}
+.pos input.no{border-color:#7a3b3b}
+
+/* ---------- results ---------- */
+.count{font-size:15px;font-weight:600}
+.count small{font-weight:400;color:var(--dim);font-size:12px;margin-left:6px}
+.warn{background:#3d2a12;border:1px solid var(--yellow);color:#f0d68a;border-radius:9px;padding:10px;font-size:14px;margin-top:8px}
+.sugg{display:flex;gap:6px;margin:10px 0;flex-wrap:wrap}
+.sugg .s{
+  flex:1 1 0;min-width:90px;background:var(--green);border-radius:9px;padding:8px 6px;text-align:center;
+  font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#fff;font-size:clamp(14px,4.2vw,19px)
+}
+.sugg .s small{display:block;font-weight:400;letter-spacing:0;text-transform:none;opacity:.75;font-size:10px}
+.sortbar{display:flex;gap:6px;margin:8px 0}
+.sortbar button{border:1px solid var(--line);border-radius:7px;padding:4px 10px;font-size:12px;color:var(--dim)}
+.sortbar button[aria-pressed=true]{background:var(--panel2);color:var(--txt);border-color:#565758}
+.list{display:flex;flex-wrap:wrap;gap:5px;max-height:38vh;overflow:auto;-webkit-overflow-scrolling:touch}
+.list span{background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:4px 8px;font-size:14px;letter-spacing:.06em;text-transform:uppercase}
+.more{width:100%;margin-top:8px;border:1px solid var(--line);border-radius:9px;padding:8px;font-size:13px;color:var(--dim);background:transparent}
+.empty{color:var(--dim);font-size:14px;line-height:1.6}
+.empty b{color:var(--txt)}
+.empty .k{display:inline-block;width:12px;height:12px;border-radius:3px;vertical-align:-1px;margin-right:2px}
+
+/* ---------- keyboard ---------- */
+#kbd{position:sticky;bottom:0;background:var(--bg);padding:6px 4px calc(6px + env(safe-area-inset-bottom));border-top:1px solid var(--line);z-index:5}
+.krow{display:flex;gap:4px;justify-content:center;margin-bottom:4px}
+.key{
+  flex:1 1 0;max-width:44px;height:46px;border-radius:5px;background:var(--kbd);color:#fff;
+  font-weight:700;font-size:13px;text-transform:uppercase;display:flex;align-items:center;justify-content:center
+}
+.key.wide{flex:1.5 1 0;max-width:64px;font-size:11px}
+.key.k0{background:var(--gray);color:#6f7173}
+.key.k1{background:var(--yellow)}
+.key.k2{background:var(--green)}
+.key:active{opacity:.7}
+footer{text-align:center;font-size:11px;color:#5a5c5e;padding:2px 10px 6px}
+
+@media(min-width:900px){
+  main{flex-direction:row;flex-wrap:wrap;align-items:flex-start}
+  #leftcol{flex:1 1 380px;display:flex;flex-direction:column;gap:10px;min-width:0}
+  #resultsPanel{flex:1 1 380px;position:sticky;top:78px;min-width:0}
+  .list{max-height:52vh}
+}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Wordle <b>Solver</b></h1>
+  <div class="lens" id="lens"></div>
+</header>
+
+<main>
+  <div id="leftcol">
+    <div class="panel">
+      <div class="panel-h">Board <span class="hint">type a guess, then tap tiles: grey → yellow → green</span></div>
+      <div id="board"></div>
+      <div class="btns">
+        <button id="addRow">+ Add guess</button>
+        <button id="reset" class="ghost">Reset all</button>
+      </div>
+    </div>
+
+    <details class="panel" id="advPanel">
+      <summary>Advanced filters</summary>
+      <div class="adv">
+        <label class="f">Must contain <input id="inc" placeholder="t r" autocapitalize="off" autocomplete="off" spellcheck="false"></label>
+        <label class="f">Must NOT contain <input id="exc" placeholder="a e" autocapitalize="off" autocomplete="off" spellcheck="false"></label>
+        <label class="f">Pattern (_ = unknown) <input id="pat" placeholder="_a__t" autocapitalize="off" autocomplete="off" spellcheck="false"></label>
+        <label class="f">At least N of a letter <input id="cnt" placeholder="2l 3e" autocapitalize="off" autocomplete="off" spellcheck="false"></label>
+        <div class="posgrid" id="posgrid"></div>
+      </div>
+    </details>
+  </div>
+
+  <div class="panel" id="resultsPanel">
+    <div class="count" id="count"></div>
+    <div id="out"></div>
+  </div>
+</main>
+
+<div id="kbd"></div>
+<footer id="foot"></footer>
+
+<script>
+"use strict";
+/* =========================================================================
+   Word lists (embedded, no backend):
+     5 letters  – Wordle "valid guesses" list (NYT-era, 14,855 words)
+                  source: github.com/tabatkins/wordle-list
+     4,6,7,8    – ENABLE1 open word list (Scrabble/word-game standard)
+                  source: github.com/dolph/dictionary/blob/master/enable1.txt
+   Stored space-joined instead of as JS arrays: same data, ~25% fewer bytes.
+   ========================================================================= */
+const WORDS = /*__WORDS__*/;
+
+const A = 97;                       // 'a'
+const LENS = [4,5,6,7,8];
+
+/* ---------------------------------------------------------------- pools
+   Per length we precompute, once, on first use:
+     words  – string[] for display
+     mask   – Int32Array, bit i set = word contains letter i (fast reject)
+     chars  – flat Uint8Array of letter indices (no charCodeAt in the hot loop)
+   Filtering then touches only typed arrays -> a few ms even for 28k words. */
+const poolCache = {};
+function makePool(words, len){
+  const n = words.length, mask = new Int32Array(n), chars = new Uint8Array(n*len);
+  for(let i=0;i<n;i++){
+    const w = words[i]; let m = 0;
+    for(let j=0;j<len;j++){ const c = w.charCodeAt(j)-A; m |= 1<<c; chars[i*len+j] = c; }
+    mask[i] = m;
+  }
+  return {words,mask,chars,len,n};
+}
+const pool = len => poolCache[len] || (poolCache[len] = makePool(WORDS[len].split(" "), len));
+
+/* ------------------------------------------------------------ constraints
+   Everything (board rows + advanced panel) is compiled into ONE of these:
+     pos[i]    letter index pinned at position i, or -1
+     posNot[i] bitmask of letters forbidden at position i
+     min[L]    minimum number of L in the answer
+     max[L]    maximum number of L in the answer  */
+function newC(len){
+  return {len,
+    pos: new Int8Array(len).fill(-1),
+    posNot: new Int32Array(len),
+    min: new Int8Array(26),
+    max: new Int8Array(26).fill(len)};
+}
+
+/* THE repeated-letter rule, per guess row:
+   - green + yellow occurrences of a letter = MINIMUM count of it in the answer
+   - if that same row ALSO greys a tile of that letter, the minimum is exact,
+     i.e. it becomes the maximum too (grey = "no more of these than I found")
+   - a grey letter never seen green/yellow => max 0 (truly absent)
+   - any non-green tile means the answer does NOT have that letter there
+   Across rows: min = max of the row minimums, max = min of the row maximums. */
+function addGuess(c, letters, states){
+  const seen = new Int8Array(26), grey = new Int8Array(26);
+  for(let i=0;i<c.len;i++){
+    const L = letters[i]; if(L < 0) continue;
+    const s = states[i];
+    if(s === 2){ c.pos[i] = L; seen[L]++; }
+    else { c.posNot[i] |= 1<<L; if(s === 1) seen[L]++; else grey[L] = 1; }
+  }
+  for(let L=0;L<26;L++){
+    if(seen[L] > c.min[L]) c.min[L] = seen[L];
+    if(grey[L] && seen[L] < c.max[L]) c.max[L] = seen[L];
+  }
+}
+
+/* ---------------------------------------------------------------- filter */
+function filter(p, c){
+  const {len,n,mask,chars} = p;
+  let need = 0, ban = 0;
+  const ckMin = [], ckMax = [];
+  for(let L=0;L<26;L++){
+    if(c.min[L] > 0){ need |= 1<<L; if(c.min[L] > 1) ckMin.push(L); }
+    if(c.max[L] === 0) ban |= 1<<L;
+    else if(c.max[L] < len) ckMax.push(L);
+  }
+  const out = [], cnt = new Int8Array(26);
+  const needCnt = ckMin.length + ckMax.length > 0;
+  outer:
+  for(let i=0;i<n;i++){
+    const m = mask[i];
+    if((m & need) !== need || (m & ban)) continue;      // cheap bitmask reject
+    const b = i*len;
+    for(let j=0;j<len;j++){
+      const ch = chars[b+j];
+      // both checks run: a position that is pinned AND forbidden for the same
+      // letter is a contradiction, and correctly yields zero matches.
+      if(c.pos[j] >= 0 && ch !== c.pos[j]) continue outer;
+      if(c.posNot[j] & (1<<ch)) continue outer;
+    }
+    if(needCnt){
+      cnt.fill(0);
+      for(let j=0;j<len;j++) cnt[chars[b+j]]++;
+      for(let k=0;k<ckMin.length;k++) if(cnt[ckMin[k]] < c.min[ckMin[k]]) continue outer;
+      for(let k=0;k<ckMax.length;k++) if(cnt[ckMax[k]] > c.max[ckMax[k]]) continue outer;
+    }
+    out.push(i);
+  }
+  return out;
+}
+
+/* ------------------------------------------------------------------ rank
+   Score = sum of letter frequencies *within the surviving pool*, counting each
+   distinct letter once (a second L tells you nothing a first L didn't).
+   Two speed tricks, worth it because this runs on every keystroke:
+   - `seen` is stamped with the word's own index instead of being zeroed per
+     word: same "have I counted this letter yet" test, no 26-byte fill x n.
+   - the sort key packs score and index into one number, so the native
+     Float64Array sort runs with NO comparator callback (~3x faster). Score is
+     an integer <= len*n, index < 65536, both exact in a float64.
+     Ties keep the lower index = alphabetical, because `words` is sorted. */
+function rank(p, idx){
+  const {chars,len} = p, n = idx.length;
+  if(n > 65535) return idx;                  // absurd pool, ranking adds nothing
+  const freq = new Float64Array(26), seen = new Int32Array(26).fill(-1);
+  for(let k=0;k<n;k++){
+    const b = idx[k]*len;
+    for(let j=0;j<len;j++){ const c = chars[b+j]; if(seen[c] !== k){ seen[c] = k; freq[c]++; } }
+  }
+  seen.fill(-1);
+  const key = new Float64Array(n);
+  for(let k=0;k<n;k++){
+    const b = idx[k]*len; let s = 0;
+    for(let j=0;j<len;j++){ const c = chars[b+j]; if(seen[c] !== k){ seen[c] = k; s += freq[c]; } }
+    key[k] = s*65536 + (65535-k);            // high score first, low index first
+  }
+  key.sort();                                 // ascending, so read it backwards
+  const out = new Array(n);
+  for(let k=0;k<n;k++) out[k] = idx[65535 - (key[n-1-k] % 65536)];
+  return out;
+}
+
+/* ================================ UI ==================================== */
+const $ = id => document.getElementById(id);
+const emptyRow = len => ({letters:new Int8Array(len).fill(-1), states:new Int8Array(len)});
+const state = {len:5, rows:[emptyRow(5)], active:0, sort:"score", shown:200,
+               adv:{inc:"",exc:"",pat:"",cnt:"",at:[],no:[]}};
+const PAGE = 200;
+const letterList = s => (s.toLowerCase().match(/[a-z]/g) || []).map(ch=>ch.charCodeAt(0)-A);
+
+/* advanced panel -> constraints */
+function addAdvanced(c){
+  const a = state.adv;
+  for(const L of letterList(a.inc)) if(c.min[L] < 1) c.min[L] = 1;
+  for(const L of letterList(a.exc)) c.max[L] = 0;
+  // "2l 3e" or "l2 e:3"
+  let m, re = /(\d+)\s*([a-z])|([a-z])\s*:?\s*(\d+)/gi;
+  while((m = re.exec(a.cnt))){
+    const L = (m[2] || m[3]).toLowerCase().charCodeAt(0)-A, n = +(m[1] || m[4]);
+    if(n > c.min[L]) c.min[L] = Math.min(n, c.len);
+  }
+  const pat = a.pat.toLowerCase();
+  for(let i=0,j=0;i<pat.length && j<c.len;i++){
+    const ch = pat[i];
+    if(ch === " ") continue;
+    if(ch >= "a" && ch <= "z") c.pos[j] = ch.charCodeAt(0)-A;
+    j++;                                   // _ . ? and any other char = unknown
+  }
+  for(let i=0;i<c.len;i++){
+    const at = letterList(a.at[i] || "");
+    if(at.length) c.pos[i] = at[0];
+    for(const L of letterList(a.no[i] || "")) c.posNot[i] |= 1<<L;
+  }
+}
+
+function build(){
+  const c = newC(state.len);
+  for(const r of state.rows) addGuess(c, r.letters, r.states);
+  addAdvanced(c);
+  return c;
+}
+
+/* ---------- renderers ---------- */
+function renderLens(){
+  $("lens").innerHTML = LENS.map(n=>`<button data-n="${n}" aria-pressed="${n===state.len}">${n}</button>`).join("");
+  $("lens").onclick = e=>{ const n = +e.target.dataset.n; if(n) setLen(n); };
+}
+
+function setLen(n){
+  state.len = n;
+  state.rows = state.rows.map(r=>{                       // keep what still fits
+    const nr = emptyRow(n);
+    for(let i=0;i<Math.min(n, r.letters.length);i++){ nr.letters[i] = r.letters[i]; nr.states[i] = r.states[i]; }
+    return nr;
+  });
+  state.active = Math.min(state.active, state.rows.length-1);
+  renderLens(); renderPos(); update();
+}
+
+function renderBoard(){
+  const b = $("board"); b.innerHTML = "";
+  state.rows.forEach((row,ri)=>{
+    const el = document.createElement("div");
+    el.className = "brow" + (ri === state.active ? " active" : "");
+    const t = document.createElement("div");
+    t.className = "tiles"; t.style.setProperty("--n", state.len);
+    const cur = row.letters.indexOf(-1);
+    for(let i=0;i<state.len;i++){
+      const L = row.letters[i], btn = document.createElement("button");
+      btn.className = "tile " + (L < 0 ? "empty" : "s"+row.states[i]) + (ri === state.active && i === cur ? " caret" : "");
+      btn.textContent = L < 0 ? "" : String.fromCharCode(65+L);
+      btn.setAttribute("aria-label", `row ${ri+1} letter ${i+1}${L<0?" empty":" "+btn.textContent+" "+["grey","yellow","green"][row.states[i]]}`);
+      btn.onclick = ()=>{
+        state.active = ri;
+        if(L >= 0) row.states[i] = (row.states[i]+1) % 3;
+        update();
+      };
+      t.appendChild(btn);
+    }
+    el.appendChild(t);
+    const x = document.createElement("button");
+    x.className = "xrow"; x.textContent = "✕"; x.title = "Delete row"; x.setAttribute("aria-label","delete row "+(ri+1));
+    x.onclick = ()=>{
+      state.rows.splice(ri,1);
+      if(!state.rows.length) state.rows.push(emptyRow(state.len));
+      state.active = Math.min(state.active, state.rows.length-1);
+      update();
+    };
+    el.appendChild(x);
+    b.appendChild(el);
+  });
+}
+
+function renderPos(){
+  const g = $("posgrid"); g.innerHTML = "";
+  for(let i=0;i<state.len;i++){
+    const d = document.createElement("div");
+    d.className = "pos";
+    d.innerHTML = `<b>Letter ${i+1}</b>
+      <input class="is" data-k="at" data-i="${i}" maxlength="1" placeholder="is…" value="${state.adv.at[i]||""}" autocapitalize="off" autocomplete="off" spellcheck="false">
+      <input class="no" data-k="no" data-i="${i}" placeholder="is not…" value="${state.adv.no[i]||""}" autocapitalize="off" autocomplete="off" spellcheck="false">`;
+    g.appendChild(d);
+  }
+  g.oninput = e=>{
+    const t = e.target, i = +t.dataset.i;
+    state.adv[t.dataset.k][i] = t.value.replace(/[^a-zA-Z]/g,"").toLowerCase();
+    update();
+  };
+}
+
+const KEYS = ["qwertyuiop","asdfghjkl","↵zxcvbnm⌫"];
+function renderKbd(c){
+  const status = new Int8Array(26).fill(-1);
+  for(let L=0;L<26;L++){
+    if(c.max[L] === 0) status[L] = 0;
+    else if(c.min[L] > 0) status[L] = 1;
+  }
+  for(let i=0;i<c.len;i++) if(c.pos[i] >= 0) status[c.pos[i]] = 2;
+  $("kbd").innerHTML = KEYS.map(r=>'<div class="krow">' + [...r].map(ch=>{
+    if(ch === "↵") return `<button class="key wide" data-k="enter">enter</button>`;
+    if(ch === "⌫") return `<button class="key wide" data-k="back">⌫</button>`;
+    const s = status[ch.charCodeAt(0)-A];
+    return `<button class="key${s>=0?" k"+s:""}" data-k="${ch}">${ch}</button>`;
+  }).join("") + "</div>").join("");
+}
+
+function renderOut(p, idx, ms){
+  const total = idx.length;
+  $("count").innerHTML = total
+    ? `${total.toLocaleString()} word${total===1?"":"s"} found <small>${ms.toFixed(1)} ms · ${state.len} letters</small>`
+    : `<span style="color:var(--yellow)">No matches</span> <small>${ms.toFixed(1)} ms</small>`;
+
+  const out = $("out");
+  if(!total){
+    out.innerHTML = `<div class="warn"><b>Nothing matches these clues.</b><br>
+      They may contradict each other — e.g. a letter marked green in one row and grey in another,
+      or an advanced rule that fights the board. Check the tile colours, or hit <b>Reset all</b>.</div>`;
+    return;
+  }
+
+  if(untouched()){
+    out.innerHTML = `<div class="empty">
+      <b>How to use it</b><br>
+      1. Type your guess — physical keyboard or the one below.<br>
+      2. Tap each tile to cycle its colour:
+         <span class="k" style="background:var(--gray)"></span>grey →
+         <span class="k" style="background:var(--yellow)"></span>yellow →
+         <span class="k" style="background:var(--green)"></span>green.<br>
+      3. <b>+ Add guess</b> for the next row — every row filters together.<br>
+      4. Need more? Open <b>Advanced filters</b> for patterns like <b>_a__t</b>, required
+         or banned letters, and per-position rules.<br><br>
+      Grey is handled properly: it means <i>"no more of this letter than I already marked"</i>,
+      not "never appears" — so double letters work.
+    </div>`;
+    return;
+  }
+
+  // idx arrives already ranked, so suggestions are the top 3 regardless of sort
+  const list = state.sort === "alpha" ? idx.slice().sort((a,b)=>p.words[a] < p.words[b] ? -1 : 1) : idx;
+  const shown = Math.min(state.shown, total);
+  const sug = idx.slice(0,3);
+
+  out.innerHTML =
+    `<div class="sugg">${sug.map((i,k)=>`<div class="s">${p.words[i]}<small>${k?"":"best guess"}</small></div>`).join("")}</div>
+     <div class="sortbar">
+       <button data-s="score" aria-pressed="${state.sort==="score"}">Best first</button>
+       <button data-s="alpha" aria-pressed="${state.sort==="alpha"}">A–Z</button>
+     </div>
+     <div class="list">${list.slice(0,shown).map(i=>`<span>${p.words[i]}</span>`).join("")}</div>
+     ${shown < total ? `<button class="more">Show ${Math.min(PAGE,total-shown)} more (${total-shown} hidden)</button>` : ""}`;
+
+  out.querySelector(".sortbar").onclick = e=>{
+    const s = e.target.dataset.s; if(!s) return;
+    state.sort = s; state.shown = PAGE; update();
+  };
+  const more = out.querySelector(".more");
+  if(more) more.onclick = ()=>{ state.shown += PAGE; update(); };
+}
+
+/* nothing entered anywhere -> we show the how-to instead of a word list */
+const untouched = ()=> state.rows.every(r=>r.letters.every(L=>L < 0)) &&
+  !Object.values(state.adv).some(v=>Array.isArray(v) ? v.some(Boolean) : v);
+
+let lastCount = -1;
+function update(){
+  const p = pool(state.len), c = build();
+  const t0 = performance.now();
+  const idx = filter(p, c);
+  const ordered = untouched() ? idx : rank(p, idx);   // no clues, nothing to rank
+  const ms = performance.now() - t0;
+  if(idx.length !== lastCount){ state.shown = PAGE; lastCount = idx.length; }   // new result set -> collapse back to one page
+  renderBoard(); renderKbd(c); renderOut(p, ordered, ms);
+}
+
+/* ---------- input ---------- */
+function typeKey(k){
+  const row = state.rows[state.active];
+  if(k === "back"){
+    let i = row.letters.indexOf(-1); if(i < 0) i = state.len;
+    if(i > 0){ row.letters[i-1] = -1; row.states[i-1] = 0; }
+  } else if(k === "enter"){
+    if(row.letters.indexOf(-1) < 0){ state.rows.push(emptyRow(state.len)); state.active = state.rows.length-1; }
+  } else {
+    const i = row.letters.indexOf(-1);
+    if(i >= 0) row.letters[i] = k.charCodeAt(0)-A;
+  }
+  update();
+}
+$("kbd").onclick = e=>{ const k = e.target.dataset.k; if(k) typeKey(k); };
+addEventListener("keydown", e=>{
+  if(e.target.tagName === "INPUT" || e.metaKey || e.ctrlKey || e.altKey) return;
+  const k = e.key.toLowerCase();
+  if(k === "backspace"){ e.preventDefault(); typeKey("back"); }
+  else if(k === "enter"){ e.preventDefault(); typeKey("enter"); }
+  else if(k.length === 1 && k >= "a" && k <= "z") typeKey(k);
+});
+
+$("addRow").onclick = ()=>{ state.rows.push(emptyRow(state.len)); state.active = state.rows.length-1; update(); };
+$("reset").onclick = ()=>{
+  state.rows = [emptyRow(state.len)]; state.active = 0; state.sort = "score"; state.shown = PAGE;
+  state.adv = {inc:"",exc:"",pat:"",cnt:"",at:[],no:[]};
+  for(const id of ["inc","exc","pat","cnt"]) $(id).value = "";
+  renderPos(); update();
+};
+for(const id of ["inc","exc","pat","cnt"])
+  $(id).oninput = e=>{ state.adv[id] = e.target.value; state.shown = PAGE; update(); };
+
+/* ============================== self-check ==============================
+   Runs on load, ~0 ms, logs to console and prints a badge in the footer.
+   Focus: the repeated-letter min/max rules, which is where naive solvers break. */
+function selfTest(){
+  // tiny fixed dictionary so the assertions don't depend on the embedded lists
+  const p = makePool(["blurb","blimp","wheat","creek","lilac","llama","level",
+                      "levee","ledge","eerie","elbow","abbey","tepee","teeth",
+                      "state","bulge"], 5);
+  const MARK = {g:2, y:1, x:0};                       // green / yellow / grey
+  const run = (...guesses)=>{                          // run("speed","xxgxx", …)
+    const c = newC(5);
+    for(let k=0;k<guesses.length;k+=2)
+      addGuess(c, [...guesses[k]].map(ch=>ch.charCodeAt(0)-A),
+                  [...guesses[k+1]].map(ch=>MARK[ch]));
+    return new Set(filter(p, c).map(i=>p.words[i]));
+  };
+  const T = [], ok = (name, cond)=>{ T.push([name, !!cond]); if(!cond) console.error("self-check FAIL:", name); };
+  let r;
+
+  // 1. green + grey of the SAME letter => that count is exact, not just a minimum.
+  //    "creek" has an e in slot 3 but two e's total, so it must be rejected.
+  r = run("speed","xxgxx");                 // s· p· E₃ e· d·
+  ok("green+grey e => exactly one e", r.has("wheat") && !r.has("creek"));
+
+  // 2. two yellows of a letter => at least TWO of it; no grey, so no upper bound.
+  r = run("abbey","xyyxx");                 // a· b? b? e· y·
+  ok("two yellow b => min 2 b", r.has("blurb") && !r.has("blimp"));
+
+  // 3. a grey letter never seen green/yellow is banned outright.
+  r = run("wheat","xxxxx");
+  ok("plain grey bans the letter", r.has("blurb") && !r.has("wheat") && !r.has("lilac"));
+
+  // 4. yellow + grey of the same letter: present exactly once, not in either slot.
+  r = run("level","yxxxx");                 // l? e· v· e· l·  => one l, not at #1/#5
+  ok("yellow+grey l => exactly one l", r.has("blurb") && !r.has("lilac") && !r.has("llama"));
+
+  // 5. green first, greys after => exactly one, pinned.
+  r = run("eerie","gxxxx");                 // E₁ e· r· i· e·
+  ok("green+greys => exact count 1", r.has("elbow") && !r.has("eerie") && !r.has("creek"));
+
+  // 6. several greens of one letter stack into the minimum.
+  r = run("tepee","xgxgg");                 // t· E₂ p· E₄ E₅
+  ok("multiple greens stack", r.has("levee") && !r.has("level") && !r.has("teeth"));
+
+  // 7. rows intersect: min from one row, exact-count + pin from another.
+  r = run("creek","xxyxx", "state","xxxxg");
+  ok("rows combine", r.has("bulge") && !r.has("ledge") && !r.has("creek"));
+
+  // 8. a grey tile still forbids that letter AT that position, even when the
+  //    letter itself is allowed elsewhere.
+  r = run("llama","xgxxx");                 // l· L₂ a· m· a·  => one l, at #2
+  ok("grey blocks its own slot", r.has("blurb") && !r.has("llama") && !r.has("lilac"));
+
+  // 9. bare position pin (what the pattern / "letter N is" inputs produce).
+  const c = newC(5); c.pos[1] = "l".charCodeAt(0)-A;
+  ok("position pin", new Set(filter(p,c).map(i=>p.words[i])).has("blurb"));
+
+  const pass = T.filter(t=>t[1]).length;
+  console.log(`Wordle Solver self-check: ${pass}/${T.length} passed`, T);
+  $("foot").innerHTML = `self-check ${pass}/${T.length} ${pass === T.length ? "✓" : "✕ — see console"}`
+    + ` · 5 letters: Wordle valid-guess list (${pool(5).n.toLocaleString()})`
+    + ` · 4/6/7/8: ENABLE1 (${[4,6,7,8].reduce((s,n)=>s+pool(n).n,0).toLocaleString()})`;
+}
+
+/* ---------- go ---------- */
+renderLens(); renderPos(); update(); selfTest();
+</script>
+</body>
+</html>
