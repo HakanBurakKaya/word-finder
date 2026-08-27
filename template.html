@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Wordle Solver</title>
+<title>Word Finder + Wordle Helper</title>
 <style>
 /* ---------- theme ---------- */
 :root{
@@ -37,7 +37,16 @@ h1 b{color:var(--green)}
 }
 .lens button[aria-pressed=true]{background:var(--green);border-color:var(--green);color:#fff;font-weight:600}
 
+/* two features, one page */
+.tabs{display:flex;gap:6px;justify-content:center}
+.tabs button{
+  flex:1 1 0;max-width:190px;border:1px solid var(--line);border-radius:9px;
+  padding:7px 12px;font-size:14px;color:var(--dim);background:var(--panel)
+}
+.tabs button[aria-pressed=true]{background:var(--panel2);color:var(--txt);border-color:#565758;font-weight:600}
+
 main{flex:1;padding:var(--pad);padding-bottom:8px;display:flex;flex-direction:column;gap:10px;max-width:1100px;width:100%;margin:0 auto}
+#leftcol{display:flex;flex-direction:column;gap:10px;min-width:0}
 
 .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px}
 .panel-h{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;margin-bottom:8px;font-size:13px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--dim)}
@@ -75,8 +84,16 @@ details.panel[open] summary::before{content:"▾ "}
 .adv{display:grid;gap:8px;margin-top:10px}
 @media(min-width:560px){.adv{grid-template-columns:1fr 1fr}}
 label.f{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--dim)}
-label.f input{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:15px;width:100%}
-label.f input:focus{outline:none;border-color:var(--green)}
+label.f input,label.f select{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:15px;width:100%}
+label.f input:focus,label.f select:focus{outline:none;border-color:var(--green)}
+/* the rack box — the finder's primary input, so it gets to look like one */
+#fLetters{
+  width:100%;background:var(--bg);border:2px solid var(--line);border-radius:10px;
+  padding:12px 14px;font-size:clamp(18px,5vw,24px);font-weight:700;
+  letter-spacing:.22em;text-transform:uppercase;text-align:center
+}
+#fLetters:focus{outline:none;border-color:var(--green)}
+#fLetters::placeholder{letter-spacing:.1em;font-weight:400;text-transform:none;color:#5a5c5e}
 .posgrid{grid-column:1/-1;display:grid;gap:6px;grid-template-columns:repeat(auto-fill,minmax(120px,1fr))}
 .pos{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:6px}
 .pos b{font-size:11px;color:var(--dim);display:block;margin-bottom:4px}
@@ -99,6 +116,12 @@ label.f input:focus{outline:none;border-color:var(--green)}
 .sortbar button[aria-pressed=true]{background:var(--panel2);color:var(--txt);border-color:#565758}
 .list{display:flex;flex-wrap:wrap;gap:5px;max-height:38vh;overflow:auto;-webkit-overflow-scrolling:touch}
 .list span{background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:4px 8px;font-size:14px;letter-spacing:.06em;text-transform:uppercase}
+.list span i{font-style:normal;color:var(--dim);font-size:10px;margin-left:5px;letter-spacing:0}
+/* finder results are grouped by length, so the scroll box moves up one level */
+.groups{max-height:44vh;overflow:auto;-webkit-overflow-scrolling:touch}
+.groups .list{max-height:none;overflow:visible;margin-bottom:10px}
+.groups h3{margin:0 0 5px;font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--dim)}
+.groups h3 span{color:#5a5c5e;font-weight:400}
 .more{width:100%;margin-top:8px;border:1px solid var(--line);border-radius:9px;padding:8px;font-size:13px;color:var(--dim);background:transparent}
 .empty{color:var(--dim);font-size:14px;line-height:1.6}
 .empty b{color:var(--txt)}
@@ -120,40 +143,75 @@ footer{text-align:center;font-size:11px;color:#5a5c5e;padding:2px 10px 6px}
 
 @media(min-width:900px){
   main{flex-direction:row;flex-wrap:wrap;align-items:flex-start}
-  #leftcol{flex:1 1 380px;display:flex;flex-direction:column;gap:10px;min-width:0}
-  #resultsPanel{flex:1 1 380px;position:sticky;top:78px;min-width:0}
+  #leftcol{flex:1 1 380px}
+  #resultsPanel{flex:1 1 380px;position:sticky;top:84px;min-width:0}
   .list{max-height:52vh}
+  .groups{max-height:58vh}
 }
 </style>
 </head>
 <body>
 
 <header>
-  <h1>Wordle <b>Solver</b></h1>
-  <div class="lens" id="lens"></div>
+  <h1>Word <b>Finder</b></h1>
+  <div class="tabs" id="tabs">
+    <button data-t="finder">Word Finder</button>
+    <button data-t="wordle">Wordle Helper</button>
+  </div>
 </header>
 
 <main>
   <div id="leftcol">
-    <div class="panel">
-      <div class="panel-h">Board <span class="hint">type a guess, then tap tiles: grey → yellow → green</span></div>
-      <div id="board"></div>
-      <div class="btns">
-        <button id="addRow">+ Add guess</button>
-        <button id="reset" class="ghost">Reset all</button>
+
+    <!-- ============ feature 1: word finder / unscrambler ============ -->
+    <div id="finderCol">
+      <div class="panel">
+        <div class="panel-h">Your letters
+          <span class="hint">? = blank (any letter) · leave empty to search by pattern alone</span></div>
+        <input id="fLetters" placeholder="your letters, e.g. ration?"
+               inputmode="latin" autocapitalize="off" autocomplete="off" spellcheck="false">
+        <div class="adv" style="margin-top:10px">
+          <label class="f">Pattern (_ = unknown)
+            <input id="fPat" placeholder="c_a__" autocapitalize="off" autocomplete="off" spellcheck="false"></label>
+          <label class="f">Word length
+            <select id="fLen"><option value="0">Any</option><option>2</option><option>3</option><option>4</option>
+              <option>5</option><option>6</option><option>7</option><option>8</option></select></label>
+          <label class="f">Starts with
+            <input id="fStarts" placeholder="st" autocapitalize="off" autocomplete="off" spellcheck="false"></label>
+          <label class="f">Ends with
+            <input id="fEnds" placeholder="ing" autocapitalize="off" autocomplete="off" spellcheck="false"></label>
+          <label class="f">Must contain
+            <input id="fInc" placeholder="r t" autocapitalize="off" autocomplete="off" spellcheck="false"></label>
+          <label class="f">Must NOT contain
+            <input id="fExc" placeholder="a e" autocapitalize="off" autocomplete="off" spellcheck="false"></label>
+        </div>
+        <div class="btns"><button id="fReset" class="ghost">Clear</button></div>
       </div>
     </div>
 
-    <details class="panel" id="advPanel">
-      <summary>Advanced filters</summary>
-      <div class="adv">
-        <label class="f">Must contain <input id="inc" placeholder="t r" autocapitalize="off" autocomplete="off" spellcheck="false"></label>
-        <label class="f">Must NOT contain <input id="exc" placeholder="a e" autocapitalize="off" autocomplete="off" spellcheck="false"></label>
-        <label class="f">Pattern (_ = unknown) <input id="pat" placeholder="_a__t" autocapitalize="off" autocomplete="off" spellcheck="false"></label>
-        <label class="f">At least N of a letter <input id="cnt" placeholder="2l 3e" autocapitalize="off" autocomplete="off" spellcheck="false"></label>
-        <div class="posgrid" id="posgrid"></div>
+    <!-- ============ feature 2: wordle helper ============ -->
+    <div id="wordleCol" hidden>
+      <div class="panel">
+        <div class="panel-h">Board <span class="hint">type a guess, then tap tiles: grey → yellow → green</span></div>
+        <div class="lens" id="lens" style="margin-bottom:10px"></div>
+        <div id="board"></div>
+        <div class="btns">
+          <button id="addRow">+ Add guess</button>
+          <button id="reset" class="ghost">Reset all</button>
+        </div>
       </div>
-    </details>
+
+      <details class="panel" id="advPanel" style="margin-top:10px">
+        <summary>Advanced filters</summary>
+        <div class="adv">
+          <label class="f">Must contain <input id="inc" placeholder="t r" autocapitalize="off" autocomplete="off" spellcheck="false"></label>
+          <label class="f">Must NOT contain <input id="exc" placeholder="a e" autocapitalize="off" autocomplete="off" spellcheck="false"></label>
+          <label class="f">Pattern (_ = unknown) <input id="pat" placeholder="_a__t" autocapitalize="off" autocomplete="off" spellcheck="false"></label>
+          <label class="f">At least N of a letter <input id="cnt" placeholder="2l 3e" autocapitalize="off" autocomplete="off" spellcheck="false"></label>
+          <div class="posgrid" id="posgrid"></div>
+        </div>
+      </details>
+    </div>
   </div>
 
   <div class="panel" id="resultsPanel">
@@ -168,17 +226,22 @@ footer{text-align:center;font-size:11px;color:#5a5c5e;padding:2px 10px 6px}
 <script>
 "use strict";
 /* =========================================================================
-   Word lists (embedded, no backend):
-     5 letters  – Wordle "valid guesses" list (NYT-era, 14,855 words)
-                  source: github.com/tabatkins/wordle-list
-     4,6,7,8    – ENABLE1 open word list (Scrabble/word-game standard)
-                  source: github.com/dolph/dictionary/blob/master/enable1.txt
+   Word lists (embedded, no backend). Keys 2..8 are ENABLE1, the open
+   Scrabble/word-game standard: github.com/dolph/dictionary
+   Key "wordle5" is the Wordle "valid guesses" list (NYT-era, 14,855 words):
+   github.com/tabatkins/wordle-list
+
+   The two lists disagree about 5-letter words, so each feature uses the right
+   one: the Wordle helper must accept exactly what Wordle accepts, while the
+   finder wants one consistent dictionary across every length.
    Stored space-joined instead of as JS arrays: same data, ~25% fewer bytes.
    ========================================================================= */
 const WORDS = /*__WORDS__*/;
 
 const A = 97;                       // 'a'
-const LENS = [4,5,6,7,8];
+const LENS  = [4,5,6,7,8];          // lengths the Wordle board offers
+const FLENS = [2,3,4,5,6,7,8];      // lengths the finder searches
+const SCORE = [1,3,3,2,1,4,2,4,1,8,5,1,3,1,1,3,10,1,1,1,1,4,4,8,4,10];  // Scrabble, a..z
 
 /* ---------------------------------------------------------------- pools
    Per length we precompute, once, on first use:
@@ -196,7 +259,12 @@ function makePool(words, len){
   }
   return {words,mask,chars,len,n};
 }
-const pool = len => poolCache[len] || (poolCache[len] = makePool(WORDS[len].split(" "), len));
+/* wordle=true swaps in the Wordle guess list for length 5; every other length
+   is ENABLE1 either way, so both features share those cached pools. */
+function pool(len, wordle){
+  const key = (wordle && len === 5) ? "wordle5" : len;
+  return poolCache[key] || (poolCache[key] = makePool(WORDS[key].split(" "), len));
+}
 
 /* ------------------------------------------------------------ constraints
    Everything (board rows + advanced panel) is compiled into ONE of these:
@@ -233,8 +301,16 @@ function addGuess(c, letters, states){
   }
 }
 
-/* ---------------------------------------------------------------- filter */
-function filter(p, c){
+/* ---------------------------------------------------------------- filter
+   `rack` is optional and is what makes the unscrambler work: a word qualifies
+   only if it can be BUILT from the letters on hand. A word needs a blank for
+   every copy of a letter it uses beyond what the rack holds, so:
+
+       sum over letters of max(0, used_by_word - held_in_rack) <= blanks
+
+   That is not the same as c.max — c.max caps a letter for every word, whereas
+   the rack lets one blank cover a shortfall in any single letter. */
+function filter(p, c, rack){
   const {len,n,mask,chars} = p;
   let need = 0, ban = 0;
   const ckMin = [], ckMax = [];
@@ -243,8 +319,12 @@ function filter(p, c){
     if(c.max[L] === 0) ban |= 1<<L;
     else if(c.max[L] < len) ckMax.push(L);
   }
+  // with no blanks every letter must come from the rack, so unusable letters
+  // can be banned outright and the whole check collapses into the bitmask.
+  if(rack && rack.blanks === 0) ban |= ~rack.mask & 0x3ffffff;
   const out = [], cnt = new Int8Array(26);
   const needCnt = ckMin.length + ckMax.length > 0;
+  const used = rack ? new Int32Array(26).fill(-1) : null, tally = rack ? new Int8Array(26) : null;
   outer:
   for(let i=0;i<n;i++){
     const m = mask[i];
@@ -256,6 +336,20 @@ function filter(p, c){
       // letter is a contradiction, and correctly yields zero matches.
       if(c.pos[j] >= 0 && ch !== c.pos[j]) continue outer;
       if(c.posNot[j] & (1<<ch)) continue outer;
+    }
+    if(rack && rack.blanks > 0){                        // blanks: count the shortfall
+      let short = 0;                                    // (used/tally stamped by word
+      for(let j=0;j<len;j++){                           //  index, so no per-word fill)
+        const ch = chars[b+j], u = used[ch] === i ? tally[ch] : 0;
+        if(u >= rack.cnt[ch] && ++short > rack.blanks) continue outer;
+        used[ch] = i; tally[ch] = u+1;
+      }
+    } else if(rack){                                    // no blanks: plain count check
+      for(let j=0;j<len;j++){
+        const ch = chars[b+j], u = used[ch] === i ? tally[ch] : 0;
+        if(u >= rack.cnt[ch]) continue outer;
+        used[ch] = i; tally[ch] = u+1;
+      }
     }
     if(needCnt){
       cnt.fill(0);
@@ -278,34 +372,124 @@ function filter(p, c){
      Float64Array sort runs with NO comparator callback (~3x faster). Score is
      an integer <= len*n, index < 65536, both exact in a float64.
      Ties keep the lower index = alphabetical, because `words` is sorted. */
+function orderByScore(idx, score){
+  const n = idx.length;
+  if(n > 65535) return idx;                  // absurd pool, ordering adds nothing
+  const key = new Float64Array(n);
+  for(let k=0;k<n;k++) key[k] = score[k]*65536 + (65535-k);
+  key.sort();                                 // ascending, so read it backwards
+  const out = new Array(n);
+  for(let k=0;k<n;k++) out[k] = idx[65535 - (key[n-1-k] % 65536)];
+  return out;                                 // ties keep the lower index = A-Z
+}
+
 function rank(p, idx){
   const {chars,len} = p, n = idx.length;
-  if(n > 65535) return idx;                  // absurd pool, ranking adds nothing
+  if(n > 65535) return idx;
   const freq = new Float64Array(26), seen = new Int32Array(26).fill(-1);
   for(let k=0;k<n;k++){
     const b = idx[k]*len;
     for(let j=0;j<len;j++){ const c = chars[b+j]; if(seen[c] !== k){ seen[c] = k; freq[c]++; } }
   }
   seen.fill(-1);
-  const key = new Float64Array(n);
+  const score = new Float64Array(n);
   for(let k=0;k<n;k++){
     const b = idx[k]*len; let s = 0;
     for(let j=0;j<len;j++){ const c = chars[b+j]; if(seen[c] !== k){ seen[c] = k; s += freq[c]; } }
-    key[k] = s*65536 + (65535-k);            // high score first, low index first
+    score[k] = s;
   }
-  key.sort();                                 // ascending, so read it backwards
-  const out = new Array(n);
-  for(let k=0;k<n;k++) out[k] = idx[65535 - (key[n-1-k] % 65536)];
-  return out;
+  return orderByScore(idx, score);
+}
+
+/* Scrabble points for a word, and the finder's default order: high score first. */
+function scrabble(p, i){
+  let s = 0; const b = i*p.len;
+  for(let j=0;j<p.len;j++) s += SCORE[p.chars[b+j]];
+  return s;
+}
+function orderByPoints(p, idx){
+  const score = new Float64Array(idx.length);
+  for(let k=0;k<idx.length;k++) score[k] = scrabble(p, idx[k]);
+  return orderByScore(idx, score);
 }
 
 /* ================================ UI ==================================== */
 const $ = id => document.getElementById(id);
 const emptyRow = len => ({letters:new Int8Array(len).fill(-1), states:new Int8Array(len)});
-const state = {len:5, rows:[emptyRow(5)], active:0, sort:"score", shown:200,
-               adv:{inc:"",exc:"",pat:"",cnt:"",at:[],no:[]}};
+const state = {tab:"finder", len:5, rows:[emptyRow(5)], active:0, sort:"score", shown:200,
+               adv:{inc:"",exc:"",pat:"",cnt:"",at:[],no:[]},
+               fx:{letters:"",pat:"",len:0,starts:"",ends:"",inc:"",exc:""}, fsort:"points"};
 const PAGE = 200;
 const letterList = s => (s.toLowerCase().match(/[a-z]/g) || []).map(ch=>ch.charCodeAt(0)-A);
+
+/* ======================= feature 1: word finder ========================= */
+
+/* "ration?" -> letters on hand + how many blanks. Null when the box is empty,
+   which is what turns the panel into a pure pattern search. */
+function parseRack(){
+  const cnt = new Int8Array(26);
+  let blanks = 0, size = 0, mask = 0;
+  for(const ch of state.fx.letters.toLowerCase()){
+    if(ch === "?" || ch === "*" || ch === "_"){ blanks++; size++; }
+    else if(ch >= "a" && ch <= "z"){ const L = ch.charCodeAt(0)-A; cnt[L]++; mask |= 1<<L; size++; }
+  }
+  return size ? {cnt, blanks, mask, size} : null;
+}
+
+/* Which lengths are worth scanning. A pattern fixes the length outright, and a
+   rack caps it — you cannot build an 8-letter word from 6 tiles. */
+function finderLengths(rack){
+  const f = state.fx, patLen = f.pat.replace(/\s/g,"").length;
+  if(patLen) return FLENS.filter(n=>n === patLen && (!rack || n <= rack.size));
+  if(f.len)  return FLENS.filter(n=>n === f.len && (!rack || n <= rack.size));
+  return FLENS.filter(n=>!rack || n <= rack.size);
+}
+
+/* The finder's filters, compiled per length. Returns null when a rule cannot
+   possibly hold at this length (e.g. "ends with -ing" against 2-letter words). */
+function finderC(len){
+  const f = state.fx, c = newC(len);
+  for(const L of letterList(f.inc)) if(c.min[L] < 1) c.min[L] = 1;
+  for(const L of letterList(f.exc)) c.max[L] = 0;
+
+  const st = letterList(f.starts), en = letterList(f.ends);
+  if(st.length > len || en.length > len || st.length + en.length > len) return null;
+  for(let i=0;i<st.length;i++) c.pos[i] = st[i];
+  for(let i=0;i<en.length;i++){
+    const at = len - en.length + i;
+    if(c.pos[at] >= 0 && c.pos[at] !== en[i]) return null;   // starts/ends collide
+    c.pos[at] = en[i];
+  }
+  const pat = f.pat.toLowerCase().replace(/\s/g,"");
+  for(let i=0;i<pat.length && i<len;i++){
+    const ch = pat[i];
+    if(ch >= "a" && ch <= "z"){
+      const L = ch.charCodeAt(0)-A;
+      if(c.pos[i] >= 0 && c.pos[i] !== L) return null;        // pattern collides
+      c.pos[i] = L;
+    }
+  }
+  return c;
+}
+
+/* One group of results per word length, longest first (the classic layout). */
+function findWords(){
+  const rack = parseRack(), groups = [];
+  let total = 0;
+  for(const len of finderLengths(rack)){
+    const c = finderC(len);
+    if(!c) continue;
+    const p = pool(len), idx = filter(p, c, rack);
+    if(idx.length){ groups.push({len, p, idx}); total += idx.length; }
+  }
+  groups.sort((a,b)=>b.len - a.len);
+  return {groups, total, rack};
+}
+
+const finderEmpty = ()=>{
+  const f = state.fx;
+  return !f.letters && !f.pat && !f.starts && !f.ends && !f.inc && !f.exc && !f.len;
+};
 
 /* advanced panel -> constraints */
 function addAdvanced(c){
@@ -476,20 +660,98 @@ function renderOut(p, idx, ms){
   if(more) more.onclick = ()=>{ state.shown += PAGE; update(); };
 }
 
+/* ---------- finder results: grouped by length, longest first ---------- */
+function renderFinder({groups, total, rack}, ms){
+  const out = $("out");
+  if(finderEmpty()){
+    $("count").innerHTML = `<small>${FLENS.reduce((s,n)=>s+pool(n).n,0).toLocaleString()} words loaded · 2–8 letters</small>`;
+    out.innerHTML = `<div class="empty">
+      <b>Two ways to use this</b><br>
+      <b>1. Unscramble.</b> Type the letters you have into the big box — you get every
+      word you can build from them, longest first, with Scrabble points.
+      Use <b>?</b> for a blank that can be any letter.<br>
+      <b>2. Search by shape.</b> Leave the letters box empty and use the filters:
+      a pattern like <b>c_a__</b>, starts/ends with, must contain, must not contain.<br><br>
+      Mix the two freely — letters plus a pattern narrows to words you can build
+      <i>and</i> that fit the shape. For Wordle clues, switch to the
+      <b>Wordle Helper</b> tab.
+    </div>`;
+    return;
+  }
+
+  $("count").innerHTML = total
+    ? `${total.toLocaleString()} word${total===1?"":"s"} found <small>${ms.toFixed(1)} ms${rack?` · from ${rack.size} letter${rack.size===1?"":"s"}`:""}</small>`
+    : `<span style="color:var(--yellow)">No matches</span> <small>${ms.toFixed(1)} ms</small>`;
+
+  if(!total){
+    out.innerHTML = `<div class="warn"><b>No word matches all of that.</b><br>
+      The rules may fight each other — a pattern that clashes with "starts with",
+      a required letter you also excluded, or letters that simply cannot spell
+      anything. Try loosening one filter, or hit <b>Clear</b>.</div>`;
+    return;
+  }
+
+  // sort each group only until the visible budget is filled: with 28k words in
+  // one group we would otherwise order the whole thing to show 200.
+  let budget = Math.min(state.shown, total), html = "";
+  for(const g of groups){
+    if(budget <= 0) break;
+    const ordered = state.fsort === "alpha" ? g.idx : orderByPoints(g.p, g.idx);
+    const take = ordered.slice(0, budget);
+    budget -= take.length;
+    html += `<h3>${g.len} letters <span>· ${g.idx.length.toLocaleString()}</span></h3>
+      <div class="list">${take.map(i=>`<span>${g.p.words[i]}<i>${scrabble(g.p,i)}</i></span>`).join("")}</div>`;
+  }
+  const shown = Math.min(state.shown, total);
+  out.innerHTML =
+    `<div class="sortbar">
+       <button data-s="points" aria-pressed="${state.fsort==="points"}">Longest &amp; best</button>
+       <button data-s="alpha" aria-pressed="${state.fsort==="alpha"}">A–Z</button>
+     </div>
+     <div class="groups">${html}</div>
+     ${shown < total ? `<button class="more">Show ${Math.min(PAGE,total-shown)} more (${(total-shown).toLocaleString()} hidden)</button>` : ""}`;
+
+  out.querySelector(".sortbar").onclick = e=>{
+    const s = e.target.dataset.s; if(!s) return;
+    state.fsort = s; state.shown = PAGE; update();
+  };
+  const more = out.querySelector(".more");
+  if(more) more.onclick = ()=>{ state.shown += PAGE; update(); };
+}
+
 /* nothing entered anywhere -> we show the how-to instead of a word list */
 const untouched = ()=> state.rows.every(r=>r.letters.every(L=>L < 0)) &&
   !Object.values(state.adv).some(v=>Array.isArray(v) ? v.some(Boolean) : v);
 
 let lastCount = -1;
 function update(){
-  const p = pool(state.len), c = build();
   const t0 = performance.now();
+  if(state.tab === "finder"){
+    // no filters at all -> the help text is the answer, don't scan 80k words
+    const res = finderEmpty() ? {groups:[], total:0, rack:null} : findWords();
+    const ms = performance.now() - t0;
+    if(res.total !== lastCount){ state.shown = PAGE; lastCount = res.total; }
+    renderFinder(res, ms);
+    return;
+  }
+  const p = pool(state.len, true), c = build();
   const idx = filter(p, c);
   const ordered = untouched() ? idx : rank(p, idx);   // no clues, nothing to rank
   const ms = performance.now() - t0;
   if(idx.length !== lastCount){ state.shown = PAGE; lastCount = idx.length; }   // new result set -> collapse back to one page
   renderBoard(); renderKbd(c); renderOut(p, ordered, ms);
 }
+
+/* ---------- tabs ---------- */
+function setTab(t){
+  state.tab = t; state.shown = PAGE; lastCount = -1;
+  $("finderCol").hidden = t !== "finder";
+  $("wordleCol").hidden = t !== "wordle";
+  $("kbd").hidden = t !== "wordle";               // finder uses the native keyboard
+  for(const b of $("tabs").children) b.setAttribute("aria-pressed", b.dataset.t === t);
+  update();
+}
+$("tabs").onclick = e=>{ const t = e.target.dataset.t; if(t) setTab(t); };
 
 /* ---------- input ---------- */
 function typeKey(k){
@@ -507,7 +769,8 @@ function typeKey(k){
 }
 $("kbd").onclick = e=>{ const k = e.target.dataset.k; if(k) typeKey(k); };
 addEventListener("keydown", e=>{
-  if(e.target.tagName === "INPUT" || e.metaKey || e.ctrlKey || e.altKey) return;
+  // the board is the only thing that steals raw keystrokes, and only on its tab
+  if(state.tab !== "wordle" || e.target.tagName === "INPUT" || e.metaKey || e.ctrlKey || e.altKey) return;
   const k = e.key.toLowerCase();
   if(k === "backspace"){ e.preventDefault(); typeKey("back"); }
   else if(k === "enter"){ e.preventDefault(); typeKey("enter"); }
@@ -523,6 +786,21 @@ $("reset").onclick = ()=>{
 };
 for(const id of ["inc","exc","pat","cnt"])
   $(id).oninput = e=>{ state.adv[id] = e.target.value; state.shown = PAGE; update(); };
+
+/* finder inputs: id fFoo <-> state.fx.foo */
+const FIN = {fLetters:"letters", fPat:"pat", fLen:"len", fStarts:"starts", fEnds:"ends", fInc:"inc", fExc:"exc"};
+for(const [id,key] of Object.entries(FIN))
+  $(id).oninput = e=>{
+    state.fx[key] = key === "len" ? +e.target.value : e.target.value;
+    state.shown = PAGE; update();
+  };
+$("fLen").onchange = $("fLen").oninput;          // Safari fires change, not input
+$("fReset").onclick = ()=>{
+  state.fx = {letters:"",pat:"",len:0,starts:"",ends:"",inc:"",exc:""};
+  state.fsort = "points"; state.shown = PAGE;
+  for(const id of Object.keys(FIN)) $(id).value = id === "fLen" ? "0" : "";
+  update();
+};
 
 /* ============================== self-check ==============================
    Runs on load, ~0 ms, logs to console and prints a badge in the footer.
@@ -581,15 +859,39 @@ function selfTest(){
   const c = newC(5); c.pos[1] = "l".charCodeAt(0)-A;
   ok("position pin", new Set(filter(p,c).map(i=>p.words[i])).has("blurb"));
 
+  /* ---- the finder's rack rule: letters get consumed, blanks cover shortfalls ---- */
+  const rk = (letters)=>{                       // same parser the UI uses
+    const save = state.fx.letters; state.fx.letters = letters;
+    const r = parseRack(); state.fx.letters = save; return r;
+  };
+  const pick = (letters)=>new Set(filter(p, newC(5), rk(letters)).map(i=>p.words[i]));
+
+  // 10. a word may not use a letter more often than the rack holds it.
+  //     "blurb" needs two b's; one b on the rack is not enough.
+  r = pick("blurb");  ok("rack spells its own word", r.has("blurb"));
+  r = pick("blur");   ok("rack of 4 spells nothing of 5", r.size === 0);
+  r = pick("blurx");  ok("one b cannot make blurb", !r.has("blurb"));
+
+  // 11. one blank covers exactly one missing copy, not two.
+  r = pick("blur?");  ok("blank supplies the second b", r.has("blurb"));
+  r = pick("blu??");  ok("two blanks still fine", r.has("blurb"));
+  r = pick("elbo");   ok("4 letters, no blank => no 5-letter word", r.size === 0);
+  r = pick("elbo?");  ok("blank completes elbow", r.has("elbow"));
+
+  // 12. rack + filters combine (this is the "both in one panel" case).
+  const c2 = newC(5); c2.pos[0] = "e".charCodeAt(0)-A;
+  r = new Set(filter(p, c2, rk("elbow")).map(i=>p.words[i]));
+  ok("rack plus pattern", r.has("elbow") && r.size === 1);
+
   const pass = T.filter(t=>t[1]).length;
-  console.log(`Wordle Solver self-check: ${pass}/${T.length} passed`, T);
+  console.log(`Word Finder self-check: ${pass}/${T.length} passed`, T);
   $("foot").innerHTML = `self-check ${pass}/${T.length} ${pass === T.length ? "✓" : "✕ — see console"}`
-    + ` · 5 letters: Wordle valid-guess list (${pool(5).n.toLocaleString()})`
-    + ` · 4/6/7/8: ENABLE1 (${[4,6,7,8].reduce((s,n)=>s+pool(n).n,0).toLocaleString()})`;
+    + ` · finder: ENABLE1 (${FLENS.reduce((s,n)=>s+pool(n).n,0).toLocaleString()} words, 2–8 letters)`
+    + ` · wordle: valid-guess list (${pool(5,true).n.toLocaleString()})`;
 }
 
 /* ---------- go ---------- */
-renderLens(); renderPos(); update(); selfTest();
+renderLens(); renderPos(); setTab("finder"); selfTest();
 </script>
 </body>
 </html>
