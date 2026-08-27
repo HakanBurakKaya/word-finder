@@ -167,9 +167,13 @@ footer{text-align:center;font-size:11px;color:#5a5c5e;padding:2px 10px 6px}
     <div id="finderCol">
       <div class="panel">
         <div class="panel-h">Your letters
-          <span class="hint">? = blank (any letter) · leave empty to search by pattern alone</span></div>
-        <input id="fLetters" placeholder="your letters, e.g. ration?"
+          <span class="hint" id="fHint"></span></div>
+        <input id="fLetters" placeholder="your letters, e.g. ration"
                inputmode="latin" autocapitalize="off" autocomplete="off" spellcheck="false">
+        <div class="sortbar" id="fMode">
+          <button data-m="contains">Words containing them</button>
+          <button data-m="rack">Build from them only</button>
+        </div>
         <div class="adv" style="margin-top:10px">
           <label class="f">Pattern (_ = unknown)
             <input id="fPat" placeholder="c_a__" autocapitalize="off" autocomplete="off" spellcheck="false"></label>
@@ -418,11 +422,21 @@ const $ = id => document.getElementById(id);
 const emptyRow = len => ({letters:new Int8Array(len).fill(-1), states:new Int8Array(len)});
 const state = {tab:"finder", len:5, rows:[emptyRow(5)], active:0, sort:"score", shown:200,
                adv:{inc:"",exc:"",pat:"",cnt:"",at:[],no:[]},
-               fx:{letters:"",pat:"",len:0,starts:"",ends:"",inc:"",exc:""}, fsort:"points"};
+               fx:{letters:"",mode:"contains",pat:"",len:0,starts:"",ends:"",inc:"",exc:""}, fsort:"points"};
 const PAGE = 200;
 const letterList = s => (s.toLowerCase().match(/[a-z]/g) || []).map(ch=>ch.charCodeAt(0)-A);
 
 /* ======================= feature 1: word finder ========================= */
+
+/* The letters box has two readings, and they are genuinely different searches:
+
+   "contains"  the word must contain these letters (at least this many of each)
+               and may be any length. 4 letters can find an 8-letter word.
+   "rack"      Scrabble tiles: the word is built FROM these letters, so they get
+               consumed and the word can never be longer than the rack.
+
+   Only "rack" uses parseRack/blanks; "contains" compiles straight into c.min,
+   which the filter already handles. */
 
 /* "ration?" -> letters on hand + how many blanks. Null when the box is empty,
    which is what turns the panel into a pure pattern search. */
@@ -449,8 +463,13 @@ function finderLengths(rack){
    possibly hold at this length (e.g. "ends with -ing" against 2-letter words). */
 function finderC(len){
   const f = state.fx, c = newC(len);
+  // "contains" mode: each copy of a letter in the box raises that letter's
+  // minimum, so "ee" demands two e's. Blanks are meaningless here and ignored.
+  if(f.mode === "contains")
+    for(const L of letterList(f.letters)) c.min[L]++;
   for(const L of letterList(f.inc)) if(c.min[L] < 1) c.min[L] = 1;
   for(const L of letterList(f.exc)) c.max[L] = 0;
+  for(let L=0;L<26;L++) if(c.min[L] > len) return null;   // more copies than fit
 
   const st = letterList(f.starts), en = letterList(f.ends);
   if(st.length > len || en.length > len || st.length + en.length > len) return null;
@@ -474,7 +493,7 @@ function finderC(len){
 
 /* One group of results per word length, longest first (the classic layout). */
 function findWords(){
-  const rack = parseRack(), groups = [];
+  const rack = state.fx.mode === "rack" ? parseRack() : null, groups = [];
   let total = 0;
   for(const len of finderLengths(rack)){
     const c = finderC(len);
@@ -666,15 +685,15 @@ function renderFinder({groups, total, rack}, ms){
   if(finderEmpty()){
     $("count").innerHTML = `<small>${FLENS.reduce((s,n)=>s+pool(n).n,0).toLocaleString()} words loaded · 2–8 letters</small>`;
     out.innerHTML = `<div class="empty">
-      <b>Two ways to use this</b><br>
-      <b>1. Unscramble.</b> Type the letters you have into the big box — you get every
-      word you can build from them, longest first, with Scrabble points.
-      Use <b>?</b> for a blank that can be any letter.<br>
-      <b>2. Search by shape.</b> Leave the letters box empty and use the filters:
-      a pattern like <b>c_a__</b>, starts/ends with, must contain, must not contain.<br><br>
-      Mix the two freely — letters plus a pattern narrows to words you can build
-      <i>and</i> that fit the shape. For Wordle clues, switch to the
-      <b>Wordle Helper</b> tab.
+      <b>Type some letters</b> — the two buttons under the box decide what they mean:<br><br>
+      <b>Words containing them</b> — every word that has those letters somewhere,
+      <i>at any length</i>. Type <b>tra</b> and you get TRAP, EXTRA, ATTRACTION…
+      Repeat a letter to demand two of it (<b>ee</b>).<br>
+      <b>Build from them only</b> — Scrabble tiles: letters get used up, so the word
+      can never be longer than what you typed. <b>?</b> is a blank.<br><br>
+      <b>Or search by shape.</b> Leave the letters box empty and use the filters:
+      a pattern like <b>c_a__</b>, starts/ends with, must contain, must not contain.
+      Everything combines. For Wordle clues, switch to the <b>Wordle Helper</b> tab.
     </div>`;
     return;
   }
@@ -795,11 +814,24 @@ for(const [id,key] of Object.entries(FIN))
     state.shown = PAGE; update();
   };
 $("fLen").onchange = $("fLen").oninput;          // Safari fires change, not input
+
+function renderMode(){
+  const m = state.fx.mode;
+  for(const b of $("fMode").children) b.setAttribute("aria-pressed", b.dataset.m === m);
+  $("fHint").textContent = m === "contains"
+    ? "any word that contains them, any length"
+    : "only words you can build from them · ? = blank";
+  $("fLetters").placeholder = m === "contains" ? "letters it must contain, e.g. tra" : "your tiles, e.g. ration?";
+}
+$("fMode").onclick = e=>{
+  const m = e.target.dataset.m; if(!m) return;
+  state.fx.mode = m; state.shown = PAGE; renderMode(); update();
+};
 $("fReset").onclick = ()=>{
-  state.fx = {letters:"",pat:"",len:0,starts:"",ends:"",inc:"",exc:""};
+  state.fx = {letters:"",mode:"contains",pat:"",len:0,starts:"",ends:"",inc:"",exc:""};
   state.fsort = "points"; state.shown = PAGE;
   for(const id of Object.keys(FIN)) $(id).value = id === "fLen" ? "0" : "";
-  update();
+  renderMode(); update();
 };
 
 /* ============================== self-check ==============================
@@ -883,6 +915,29 @@ function selfTest(){
   r = new Set(filter(p, c2, rk("elbow")).map(i=>p.words[i]));
   ok("rack plus pattern", r.has("elbow") && r.size === 1);
 
+  /* ---- "contains" mode: letters are NOT consumed, so length is not capped ---- */
+  const withFx = (fx, fn)=>{
+    const save = state.fx;
+    state.fx = {letters:"",mode:"contains",pat:"",len:0,starts:"",ends:"",inc:"",exc:"", ...fx};
+    try { return fn(); } finally { state.fx = save; }
+  };
+  const cont = letters => withFx({letters}, ()=>{
+    const c = finderC(5);
+    return c ? new Set(filter(p, c).map(i=>p.words[i])) : new Set();
+  });
+
+  // 13. three letters find a five-letter word — the whole point of the mode.
+  r = cont("blu");  ok("contains: fewer letters than the word", r.has("blurb") && r.has("blimp") === false);
+  r = cont("bl");   ok("contains: 2 letters, several hits", r.has("blurb") && r.has("blimp"));
+
+  // 14. a repeated letter in the box demands that many copies.
+  r = cont("bb");   ok("contains: repeats set the minimum", r.has("blurb") && !r.has("blimp"));
+
+  // 15. and it must not cap the search length the way a rack does.
+  ok("contains searches every length",
+     withFx({letters:"bl"}, ()=>finderLengths(null).length) === FLENS.length);
+  ok("rack caps length to the tiles", finderLengths(rk("blu")).join() === "2,3");
+
   const pass = T.filter(t=>t[1]).length;
   console.log(`Word Finder self-check: ${pass}/${T.length} passed`, T);
   $("foot").innerHTML = `self-check ${pass}/${T.length} ${pass === T.length ? "✓" : "✕ — see console"}`
@@ -891,7 +946,7 @@ function selfTest(){
 }
 
 /* ---------- go ---------- */
-renderLens(); renderPos(); setTab("finder"); selfTest();
+renderLens(); renderPos(); renderMode(); setTab("finder"); selfTest();
 </script>
 </body>
 </html>
