@@ -37,14 +37,6 @@ h1 b{color:var(--green)}
 }
 .lens button[aria-pressed=true]{background:var(--green);border-color:var(--green);color:#fff;font-weight:600}
 
-/* two features, one page */
-.tabs{display:flex;gap:6px;justify-content:center}
-.tabs button{
-  flex:1 1 0;max-width:190px;border:1px solid var(--line);border-radius:9px;
-  padding:7px 12px;font-size:14px;color:var(--dim);background:var(--panel)
-}
-.tabs button[aria-pressed=true]{background:var(--panel2);color:var(--txt);border-color:#565758;font-weight:600}
-
 main{flex:1;padding:var(--pad);padding-bottom:8px;display:flex;flex-direction:column;gap:10px;max-width:1100px;width:100%;margin:0 auto}
 #leftcol{display:flex;flex-direction:column;gap:10px;min-width:0}
 
@@ -114,6 +106,10 @@ label.f input:focus,label.f select:focus{outline:none;border-color:var(--green)}
 .sortbar{display:flex;gap:6px;margin:8px 0}
 .sortbar button{border:1px solid var(--line);border-radius:7px;padding:4px 10px;font-size:12px;color:var(--dim)}
 .sortbar button[aria-pressed=true]{background:var(--panel2);color:var(--txt);border-color:#565758}
+/* the two page tabs are a sortbar, sized up — must stay after it to win on order */
+.tabs{justify-content:center;margin:0}
+.tabs button{flex:1 1 0;max-width:190px;border-radius:9px;padding:7px 12px;font-size:14px;background:var(--panel)}
+.tabs button[aria-pressed=true]{font-weight:600}
 .list{display:flex;flex-wrap:wrap;gap:5px;max-height:38vh;overflow:auto;-webkit-overflow-scrolling:touch}
 .list span{background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:4px 8px;font-size:14px;letter-spacing:.06em;text-transform:uppercase}
 .list span i{font-style:normal;color:var(--dim);font-size:10px;margin-left:5px;letter-spacing:0}
@@ -154,7 +150,7 @@ footer{text-align:center;font-size:11px;color:#5a5c5e;padding:2px 10px 6px}
 
 <header>
   <h1>Word <b>Finder</b></h1>
-  <div class="tabs" id="tabs">
+  <div class="sortbar tabs" id="tabs">
     <button data-t="finder">Word Finder</button>
     <button data-t="wordle">Wordle Helper</button>
   </div>
@@ -325,7 +321,7 @@ function filter(p, c, rack){
   }
   // with no blanks every letter must come from the rack, so unusable letters
   // can be banned outright and the whole check collapses into the bitmask.
-  if(rack && rack.blanks === 0) ban |= ~rack.mask & 0x3ffffff;
+  if(rack && rack.blanks === 0) ban |= ~rack.mask;
   const out = [], cnt = new Int8Array(26);
   const needCnt = ckMin.length + ckMax.length > 0;
   const used = rack ? new Int32Array(26).fill(-1) : null, tally = rack ? new Int8Array(26) : null;
@@ -341,17 +337,11 @@ function filter(p, c, rack){
       if(c.pos[j] >= 0 && ch !== c.pos[j]) continue outer;
       if(c.posNot[j] & (1<<ch)) continue outer;
     }
-    if(rack && rack.blanks > 0){                        // blanks: count the shortfall
-      let short = 0;                                    // (used/tally stamped by word
-      for(let j=0;j<len;j++){                           //  index, so no per-word fill)
+    if(rack){                       // one shortfall per copy used beyond the rack;
+      let short = 0;                // with no blanks the first shortfall already fails.
+      for(let j=0;j<len;j++){       // used/tally stamped by word index, so no per-word fill
         const ch = chars[b+j], u = used[ch] === i ? tally[ch] : 0;
         if(u >= rack.cnt[ch] && ++short > rack.blanks) continue outer;
-        used[ch] = i; tally[ch] = u+1;
-      }
-    } else if(rack){                                    // no blanks: plain count check
-      for(let j=0;j<len;j++){
-        const ch = chars[b+j], u = used[ch] === i ? tally[ch] : 0;
-        if(u >= rack.cnt[ch]) continue outer;
         used[ch] = i; tally[ch] = u+1;
       }
     }
@@ -444,7 +434,7 @@ function parseRack(){
   const cnt = new Int8Array(26);
   let blanks = 0, size = 0, mask = 0;
   for(const ch of state.fx.letters.toLowerCase()){
-    if(ch === "?" || ch === "*" || ch === "_"){ blanks++; size++; }
+    if(ch === "?"){ blanks++; size++; }   // only ?; _ already means "unknown" in the pattern box
     else if(ch >= "a" && ch <= "z"){ const L = ch.charCodeAt(0)-A; cnt[L]++; mask |= 1<<L; size++; }
   }
   return size ? {cnt, blanks, mask, size} : null;
@@ -453,10 +443,8 @@ function parseRack(){
 /* Which lengths are worth scanning. A pattern fixes the length outright, and a
    rack caps it — you cannot build an 8-letter word from 6 tiles. */
 function finderLengths(rack){
-  const f = state.fx, patLen = f.pat.replace(/\s/g,"").length;
-  if(patLen) return FLENS.filter(n=>n === patLen && (!rack || n <= rack.size));
-  if(f.len)  return FLENS.filter(n=>n === f.len && (!rack || n <= rack.size));
-  return FLENS.filter(n=>!rack || n <= rack.size);
+  const f = state.fx, want = f.pat.replace(/\s/g,"").length || f.len;   // pattern wins
+  return FLENS.filter(n=>(!want || n === want) && (!rack || n <= rack.size));
 }
 
 /* The finder's filters, compiled per length. Returns null when a rule cannot
@@ -543,6 +531,20 @@ function build(){
 }
 
 /* ---------- renderers ---------- */
+
+/* both result panels end the same way: a sort toggle and a show-more button */
+const moreBtn = (shown, total)=> shown < total
+  ? `<button class="more">Show ${Math.min(PAGE,total-shown)} more (${(total-shown).toLocaleString()} hidden)</button>` : "";
+function wireTail(out, sortKey){
+  out.querySelector(".sortbar").onclick = e=>{
+    if(e.target.dataset.s){ state[sortKey] = e.target.dataset.s; state.shown = PAGE; update(); }
+  };
+  const more = out.querySelector(".more");
+  if(more) more.onclick = ()=>{ state.shown += PAGE; update(); };
+}
+/* mark the pressed button of a segmented control (tabs, mode, lengths) */
+const press = (el, k, v)=>{ for(const b of el.children) b.setAttribute("aria-pressed", b.dataset[k] === String(v)); };
+
 function renderLens(){
   $("lens").innerHTML = LENS.map(n=>`<button data-n="${n}" aria-pressed="${n===state.len}">${n}</button>`).join("");
   $("lens").onclick = e=>{ const n = +e.target.dataset.n; if(n) setLen(n); };
@@ -556,7 +558,7 @@ function setLen(n){
     return nr;
   });
   state.active = Math.min(state.active, state.rows.length-1);
-  renderLens(); renderPos(); update();
+  press($("lens"), "n", n); renderPos(); update();
 }
 
 function renderBoard(){
@@ -669,14 +671,8 @@ function renderOut(p, idx, ms){
        <button data-s="alpha" aria-pressed="${state.sort==="alpha"}">A–Z</button>
      </div>
      <div class="list">${list.slice(0,shown).map(i=>`<span>${p.words[i]}</span>`).join("")}</div>
-     ${shown < total ? `<button class="more">Show ${Math.min(PAGE,total-shown)} more (${total-shown} hidden)</button>` : ""}`;
-
-  out.querySelector(".sortbar").onclick = e=>{
-    const s = e.target.dataset.s; if(!s) return;
-    state.sort = s; state.shown = PAGE; update();
-  };
-  const more = out.querySelector(".more");
-  if(more) more.onclick = ()=>{ state.shown += PAGE; update(); };
+     ${moreBtn(shown, total)}`;
+  wireTail(out, "sort");
 }
 
 /* ---------- finder results: grouped by length, longest first ---------- */
@@ -728,14 +724,8 @@ function renderFinder({groups, total, rack}, ms){
        <button data-s="alpha" aria-pressed="${state.fsort==="alpha"}">A–Z</button>
      </div>
      <div class="groups">${html}</div>
-     ${shown < total ? `<button class="more">Show ${Math.min(PAGE,total-shown)} more (${(total-shown).toLocaleString()} hidden)</button>` : ""}`;
-
-  out.querySelector(".sortbar").onclick = e=>{
-    const s = e.target.dataset.s; if(!s) return;
-    state.fsort = s; state.shown = PAGE; update();
-  };
-  const more = out.querySelector(".more");
-  if(more) more.onclick = ()=>{ state.shown += PAGE; update(); };
+     ${moreBtn(shown, total)}`;
+  wireTail(out, "fsort");
 }
 
 /* nothing entered anywhere -> we show the how-to instead of a word list */
@@ -767,7 +757,7 @@ function setTab(t){
   $("finderCol").hidden = t !== "finder";
   $("wordleCol").hidden = t !== "wordle";
   $("kbd").hidden = t !== "wordle";               // finder uses the native keyboard
-  for(const b of $("tabs").children) b.setAttribute("aria-pressed", b.dataset.t === t);
+  press($("tabs"), "t", t);
   update();
 }
 $("tabs").onclick = e=>{ const t = e.target.dataset.t; if(t) setTab(t); };
@@ -817,7 +807,7 @@ $("fLen").onchange = $("fLen").oninput;          // Safari fires change, not inp
 
 function renderMode(){
   const m = state.fx.mode;
-  for(const b of $("fMode").children) b.setAttribute("aria-pressed", b.dataset.m === m);
+  press($("fMode"), "m", m);
   $("fHint").textContent = m === "contains"
     ? "any word that contains them, any length"
     : "only words you can build from them · ? = blank";
